@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <title>عجلة الأرقام - خمن الرقم السري</title>
   <style>
+    /* الأنماط دون تغيير */
     body { margin: 0; overflow: hidden; background: #0a0a1a; font-family: 'Arial', sans-serif; touch-action: none; }
     #info { position: absolute; top: 10px; left: 10px; color: white; background: rgba(0,0,0,0.8); padding: 8px 15px; border-radius: 20px; font-size: 15px; white-space: nowrap; z-index: 10; }
     #leftButtons { position: absolute; top: 60px; left: 10px; z-index: 10; display: flex; flex-direction: column; gap: 8px; }
@@ -47,6 +48,50 @@
   <script type="module">
     import * as THREE from 'three';
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+    // ==================== نظام الصوت ====================
+    let audioCtx = null;
+
+    function initAudio() {
+      if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+    }
+
+    function playTone(frequency, duration, type = 'sine', volume = 0.1) {
+      if (!audioCtx) return;
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = type;
+      osc.frequency.value = frequency;
+      gain.gain.setValueAtTime(volume, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start(audioCtx.currentTime);
+      osc.stop(audioCtx.currentTime + duration);
+    }
+
+    function playClickSound() {
+      playTone(800, 0.05, 'square', 0.08);
+    }
+
+    function playRotateSound() {
+      playTone(300, 0.03, 'sine', 0.05);
+    }
+
+    function playSuccessSound() {
+      playTone(523, 0.1, 'sine', 0.15);
+      setTimeout(() => playTone(659, 0.1, 'sine', 0.15), 100);
+      setTimeout(() => playTone(784, 0.2, 'sine', 0.2), 200);
+    }
+
+    function playErrorSound() {
+      playTone(200, 0.08, 'triangle', 0.1);
+      setTimeout(() => playTone(150, 0.12, 'triangle', 0.1), 80);
+    }
+    // ===================================================
 
     const colors = [
       "#E74C3C", "#2ECC71", "#F39C12", "#9B59B6", "#1ABC9C",
@@ -154,6 +199,60 @@
 
     const sepMat = new THREE.MeshStandardMaterial({ color:0xffffff, roughness:0.1, metalness:0.9, emissive:new THREE.Color(0xffffff).multiplyScalar(0.6) });
     [centerRadius, ring1Outer, ring2Inner, ring2Outer, ring3Inner, ring3Outer, ring4Inner].forEach(r => staticGroup.add(new THREE.Mesh(new THREE.TorusGeometry(r,0.02,16,64), sepMat)));
+
+    // ==================== حلقة النص الثابتة الأنيقة ====================
+    const txtRadius = ring4Outer + 0.2; // 2.9
+    // حلقة شفافة بيضاء خلف النص
+    const textRingMat = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      roughness: 0.3,
+      metalness: 0.1,
+      emissive: new THREE.Color(0xffffff).multiplyScalar(0.5),
+      transparent: true,
+      opacity: 0.7,
+      depthWrite: false
+    });
+    const textRing = new THREE.Mesh(new THREE.TorusGeometry(txtRadius, 0.06, 16, 100), textRingMat);
+    textRing.position.z = thick/2 + 0.1; // أمام الحلقات قليلاً
+    staticGroup.add(textRing);
+
+    // إنشاء النص الأسود الرفيع
+    function createTextSprite(char, scale = 0.3) {
+      const can = document.createElement('canvas');
+      can.width = 64; can.height = 64;
+      const ctx = can.getContext('2d');
+      ctx.fillStyle = '#000000'; // أسود ناعم
+      ctx.font = '300 40px Arial'; // رفيع جداً
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(char, 32, 32);
+      const texture = new THREE.CanvasTexture(can);
+      const material = new THREE.SpriteMaterial({
+        map: texture,
+        transparent: true,
+        depthTest: true,
+        depthWrite: false
+      });
+      const sprite = new THREE.Sprite(material);
+      sprite.scale.set(scale, scale, 1);
+      return sprite;
+    }
+
+    const txt = "فكرة وتطبيق ذكي";
+    const chars = txt.split('');
+    const startAngle = 0;
+    const endAngle = Math.PI;
+    const angleStep = (endAngle - startAngle) / (chars.length - 1);
+
+    chars.forEach((char, i) => {
+      const angle = startAngle + i * angleStep;
+      const x = Math.cos(angle) * txtRadius;
+      const y = Math.sin(angle) * txtRadius;
+      const sprite = createTextSprite(char, 0.3);
+      sprite.position.set(x, y, thick/2 + 0.15); // فوق الحلقة البيضاء
+      staticGroup.add(sprite);
+    });
+    // =================================================================
 
     const pointerGroup = new THREE.Group();
     pointerGroup.position.set(0, ring4Outer+0.4, thick/2+0.1);
@@ -286,6 +385,10 @@
           if (Math.abs(diff) > 0.001) {
             ring.rotation.z += diff * 0.1;
             anyMoving = true;
+            if (!ring.userData.lastSoundTime || Date.now() - ring.userData.lastSoundTime > 60) {
+              playRotateSound();
+              ring.userData.lastSoundTime = Date.now();
+            }
           } else {
             ring.rotation.z = target;
             delete ring.userData.targetZ;
@@ -331,6 +434,7 @@
 
       if (guessed === secretNumber) {
         gameWon = true;
+        playSuccessSound();
         document.getElementById('secretDisplay').textContent = String(secretNumber).padStart(4, '0');
         document.getElementById('message').textContent = '🎉 أحسنت! لقد خمنت الرقم!';
         document.getElementById('guessBtn').disabled = true;
@@ -348,6 +452,7 @@
           }
         });
       } else {
+        playErrorSound();
         document.getElementById('message').textContent = '';
         const guessedDigits = String(guessed).padStart(4, '0').split('').map(Number);
         applyHighlights(guessedDigits);
@@ -392,13 +497,19 @@
       pad.appendChild(guessBtn);
     }
 
-    // ✅ الحل النهائي: امسح الكل ثم أضف الرقم الجديد
     function addDigit(digit) {
       if (gameWon || animating) return;
+      initAudio();
+      playClickSound();
       clearOnlyHighlighted();
-      inputDigits = [];
+      if (inputDigits.length >= 4) inputDigits = [];
       inputDigits.push(digit);
       updateInputDisplay();
+      if (inputDigits.length === 4) {
+        const num = parseInt(inputDigits.join(''));
+        animateToNumber(num);
+        inputDigits = [];
+      }
     }
 
     function clearInput() {
@@ -413,13 +524,6 @@
       if (inputDigits.length > 0) {
         display.textContent = inputDigits.join('').padStart(4, '_');
         display.style.color = '#FFD700';
-        
-        // ✅ عند اكتمال 4 أرقام، حرك العجلات
-        if (inputDigits.length === 4) {
-          const num = parseInt(inputDigits.join(''));
-          animateToNumber(num);
-          inputDigits = [];
-        }
       } else {
         updateDisplay();
       }
@@ -517,7 +621,7 @@
     (function loop() {
       requestAnimationFrame(loop);
       controls.update();
-      if (!animating && !gameWon) updateDisplay();
+      if (!animating && !gameWon && inputDigits.length === 0) updateDisplay();
       renderer.render(scene, camera);
     })();
 
