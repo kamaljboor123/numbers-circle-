@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>عجلة الأرقام - خمن الرقم السري</title>
+  <style>
+    body { margin: 0; overflow: hidden; background: #0a0a1a; font-family: 'Arial', sans-serif; touch-action: none; }
+    #info { position: absolute; top: 10px; left: 10px; color: white; background: rgba(0,0,0,0.8); padding: 8px 15px; border-radius: 20px; font-size: 15px; white-space: nowrap; z-index: 10; }
+    #leftButtons { position: absolute; top: 60px; left: 10px; z-index: 10; display: flex; flex-direction: column; gap: 8px; }
+    .action-btn { padding: 8px 16px; font-size: 14px; font-weight: bold; border: none; border-radius: 20px; cursor: pointer; white-space: nowrap; }
+    #revealBtn { background: #555555; color: white; }
+    #resetBtn { background: #7F8C8D; color: white; }
+    #newGameBtn { background: #00AA55; color: white; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    #secretDisplay { position: absolute; top: 10px; right: 10px; color: #FFD700; font-size: 36px; font-weight: bold; text-shadow: 0 0 20px #FFD700; background: rgba(0,0,0,0.7); padding: 5px 20px; border-radius: 15px; z-index: 10; }
+    #attemptsDisplay { position: absolute; top: 70px; right: 10px; color: #CCCCCC; font-size: 18px; background: rgba(0,0,0,0.6); padding: 3px 15px; border-radius: 8px; z-index: 10; }
+    #currentNumber { position: absolute; top: 50px; left: 50%; transform: translateX(-50%); color: #00FFFF; font-size: 48px; font-weight: bold; text-shadow: 0 0 25px #00FFFF; z-index: 10; background: rgba(0,0,0,0.7); padding: 5px 30px; border-radius: 15px; }
+    #message { position: absolute; top: 160px; left: 50%; transform: translateX(-50%); color: #FFFFFF; font-size: 24px; font-weight: bold; text-shadow: 0 0 15px #FFFFFF; z-index: 10; background: rgba(0,0,0,0.6); padding: 5px 20px; border-radius: 10px; }
+    #hint { position: absolute; bottom: 120px; left: 50%; transform: translateX(-50%); color: rgba(255,255,255,0.8); font-size: 15px; z-index: 10; pointer-events: none; background: rgba(0,0,0,0.5); padding: 2px 15px; border-radius: 20px; }
+    #numpad { position: absolute; bottom: 10px; left: 0; right: 0; display: flex; justify-content: center; align-items: center; gap: 8px; flex-wrap: wrap; padding: 5px; z-index: 10; }
+    .num-btn { width: 45px; height: 45px; font-size: 20px; font-weight: bold; border: none; border-radius: 12px; background: #1a1a2e; color: #00FFFF; border: 1px solid #00FFFF; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+    .num-btn:active { background: #00FFFF33; }
+    .action-btn-sm { padding: 8px 12px; font-size: 13px; font-weight: bold; border: none; border-radius: 20px; cursor: pointer; }
+    #clearBtn { background: #AA4444; color: white; }
+    #guessBtn { background: #AA00FF; color: white; }
+  </style>
+</head>
+<body>
+  <div id="info">🎰 خمن الرقم السري (4 أرقام)</div>
+  <div id="leftButtons">
+    <button id="revealBtn" class="action-btn">👁 إظهار</button>
+    <button id="resetBtn" class="action-btn">🔄 تصفير</button>
+    <button id="newGameBtn" class="action-btn">🆕 لعبة جديدة</button>
+  </div>
+  <div id="secretDisplay">????</div>
+  <div id="attemptsDisplay">المحاولات: 0</div>
+  <div id="currentNumber">0000</div>
+  <div id="message"></div>
+  <div id="hint">👆 حرك الحلقات أو استخدم لوحة الأرقام</div>
+  <div id="numpad"></div>
+
+  <script type="importmap">
+    { "imports": { "three": "https://unpkg.com/three@0.157.0/build/three.module.js", "three/addons/": "https://unpkg.com/three@0.157.0/examples/jsm/" } }
+  </script>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+    const colors = [
+      "#E74C3C", "#2ECC71", "#F39C12", "#9B59B6", "#1ABC9C",
+      "#E67E22", "#3498DB", "#E91E63", "#00BCD4", "#FF5722"
+    ];
+    
+    const textColorBlack = "#000000";
+    const numbers = ["0","1","2","3","4","5","6","7","8","9"];
+    const N = 10;
+    const arc = (2 * Math.PI) / N;
+    const gapAngle = 0.04;
+    const angleOffset = Math.PI/2 - arc/2;
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x0a0a1a);
+
+    const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.1, 50);
+    camera.position.set(0, 0, 9);
+    camera.lookAt(0, 0, 0);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(innerWidth, innerHeight);
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    document.body.appendChild(renderer.domElement);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.enableRotate = false;
+    controls.enablePan = false;
+    controls.enableZoom = true;
+    controls.minDistance = 5;
+    controls.maxDistance = 14;
+    controls.target.set(0, 0, 0);
+
+    scene.add(new THREE.AmbientLight(0x334455, 4));
+    const sun = new THREE.DirectionalLight(0xffffff, 6);
+    sun.position.set(0, 10, 10);
+    scene.add(sun);
+
+    const thick = 1.0;
+    const centerRadius = 0.4;
+    const ring1Outer = 0.9;
+    const gapDist = gapAngle * 0.7;
+    const ring2Inner = ring1Outer + gapDist;
+    const ring2Outer = 1.5;
+    const ring3Inner = ring2Outer + gapDist;
+    const ring3Outer = 2.1;
+    const ring4Inner = ring3Outer + gapDist;
+    const ring4Outer = 2.7;
+
+    const ringSegments = { ring1: [], ring2: [], ring3: [], ring4: [] };
+
+    function createNumberSprite(number, scale = 0.35) {
+      const can = document.createElement('canvas');
+      can.width = 128; can.height = 128;
+      const ctx = can.getContext('2d');
+      ctx.fillStyle = textColorBlack;
+      ctx.font = 'bold 80px Arial';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.shadowColor = '#FFFFFF';
+      ctx.shadowBlur = 4;
+      ctx.fillText(number, 64, 64);
+      const texture = new THREE.CanvasTexture(can);
+      const material = new THREE.SpriteMaterial({ map: texture, transparent: true });
+      const sprite = new THREE.Sprite(material);
+      sprite.scale.set(scale, scale, 1);
+      return sprite;
+    }
+
+    function createRing(ring, innerR, outerR, scale) {
+      numbers.forEach((num, i) => {
+        const start = angleOffset + i * arc + gapAngle/2;
+        const end = angleOffset + (i+1)*arc - gapAngle/2;
+        const midAngle = (start+end)/2, midR = (innerR+outerR)/2;
+        const shape = new THREE.Shape();
+        shape.moveTo(Math.cos(start)*innerR, Math.sin(start)*innerR);
+        for (let j=0; j<=32; j++) { const a = start + (j/32)*(end-start); shape.lineTo(Math.cos(a)*outerR, Math.sin(a)*outerR); }
+        for (let j=32; j>=0; j--) { const a = start + (j/32)*(end-start); shape.lineTo(Math.cos(a)*innerR, Math.sin(a)*innerR); }
+        const geo = new THREE.ExtrudeGeometry(shape, { steps:1, depth:thick, bevelEnabled:true, bevelThickness:0.03, bevelSize:0.03, bevelSegments:3 });
+        geo.translate(0,0,-thick/2);
+        const mat = new THREE.MeshStandardMaterial({ color:colors[i], roughness:0.25, metalness:0.8, emissive:new THREE.Color(colors[i]).multiplyScalar(0.3) });
+        const mesh = new THREE.Mesh(geo, mat);
+        ring.add(mesh);
+        ringSegments[ring.name][i] = mesh;
+        const sprite = createNumberSprite(num, scale);
+        sprite.position.set(Math.cos(midAngle)*midR, Math.sin(midAngle)*midR, thick/2+0.05);
+        ring.add(sprite);
+      });
+    }
+
+    const ring1 = new THREE.Group(); ring1.name = "ring1"; scene.add(ring1);
+    createRing(ring1, centerRadius, ring1Outer, 0.35);
+    const ring2 = new THREE.Group(); ring2.name = "ring2"; scene.add(ring2);
+    createRing(ring2, ring2Inner, ring2Outer, 0.4);
+    const ring3 = new THREE.Group(); ring3.name = "ring3"; scene.add(ring3);
+    createRing(ring3, ring3Inner, ring3Outer, 0.45);
+    const ring4 = new THREE.Group(); ring4.name = "ring4"; scene.add(ring4);
+    createRing(ring4, ring4Inner, ring4Outer, 0.5);
+
+    const staticGroup = new THREE.Group(); scene.add(staticGroup);
+    const centerDiskGeo = new THREE.CylinderGeometry(centerRadius, centerRadius, thick, 64);
+    const centerDisk = new THREE.Mesh(centerDiskGeo, new THREE.MeshStandardMaterial({ color:0xFFD700, roughness:0.2, metalness:0.9, emissive:new THREE.Color(0xFFD700).multiplyScalar(0.4) }));
+    centerDisk.rotation.x = Math.PI/2; staticGroup.add(centerDisk);
+
+    const sepMat = new THREE.MeshStandardMaterial({ color:0xffffff, roughness:0.1, metalness:0.9, emissive:new THREE.Color(0xffffff).multiplyScalar(0.6) });
+    [centerRadius, ring1Outer, ring2Inner, ring2Outer, ring3Inner, ring3Outer, ring4Inner].forEach(r => staticGroup.add(new THREE.Mesh(new THREE.TorusGeometry(r,0.02,16,64), sepMat)));
+
+    const pointerGroup = new THREE.Group();
+    pointerGroup.position.set(0, ring4Outer+0.4, thick/2+0.1);
+    staticGroup.add(pointerGroup);
+    const triShape = new THREE.Shape();
+    triShape.moveTo(0,0.25); triShape.lineTo(-0.18,-0.2); triShape.lineTo(0.18,-0.2); triShape.closePath();
+    const triGeo = new THREE.ExtrudeGeometry(triShape, { steps:1, depth:0.08, bevelEnabled:true, bevelThickness:0.01, bevelSize:0.01 });
+    triGeo.translate(0,0,-0.04);
+    const triMesh = new THREE.Mesh(triGeo, new THREE.MeshStandardMaterial({ color:0x00FFFF, roughness:0.1, metalness:0.3, emissive:new THREE.Color(0x00FFFF).multiplyScalar(1.5) }));
+    triMesh.rotation.z = Math.PI;
+    pointerGroup.add(triMesh);
+    pointerGroup.add(new THREE.PointLight(0x00FFFF, 2, 1.5));
+
+    let secretNumber = Math.floor(Math.random() * 10000);
+    let secretDigits = String(secretNumber).padStart(4, '0').split('').map(Number);
+    let attempts = 0;
+    let gameWon = false;
+    let inputDigits = [];
+    let isRevealed = false;
+
+    let highlightedMeshes = [];
+
+    function clearOnlyHighlighted() {
+      highlightedMeshes.forEach(item => {
+        const mesh = item.mesh;
+        const originalColor = colors[item.digit];
+        mesh.material.emissive.set(new THREE.Color(originalColor).multiplyScalar(0.3));
+      });
+      highlightedMeshes = [];
+    }
+
+    function applyHighlights(guessedDigits) {
+      if (gameWon) return;
+      clearOnlyHighlighted();
+      
+      const states = evaluateGuess(guessedDigits, secretDigits);
+      const rings = [ring4, ring3, ring2, ring1];
+      
+      guessedDigits.forEach((digit, idx) => {
+        const mesh = ringSegments[rings[idx].name][digit];
+        if (!mesh) return;
+        
+        let emissiveColor;
+        if (states[idx] === 1) {
+          emissiveColor = new THREE.Color(0x00FF00).multiplyScalar(2.0);
+        } else if (states[idx] === 2) {
+          emissiveColor = new THREE.Color(0xFFFF00).multiplyScalar(2.0);
+        } else {
+          emissiveColor = new THREE.Color(colors[digit]).multiplyScalar(0.3);
+        }
+        
+        mesh.material.emissive.set(emissiveColor);
+        highlightedMeshes.push({ mesh, digit });
+      });
+    }
+
+    function evaluateGuess(guess, secret) {
+      const states = [0,0,0,0];
+      const secretCopy = [...secret];
+      const guessCopy = [...guess];
+      for (let i = 0; i < 4; i++) {
+        if (guessCopy[i] === secretCopy[i]) {
+          states[i] = 1;
+          secretCopy[i] = -1;
+          guessCopy[i] = -2;
+        }
+      }
+      for (let i = 0; i < 4; i++) {
+        if (guessCopy[i] >= 0) {
+          const idx = secretCopy.indexOf(guessCopy[i]);
+          if (idx !== -1) {
+            states[i] = 2;
+            secretCopy[idx] = -1;
+          }
+        }
+      }
+      return states;
+    }
+
+    function getDigit(ring) {
+      const rotZ = ring.rotation.z;
+      const idx = Math.round(-rotZ / arc);
+      return parseInt(numbers[((idx % N) + N) % N]);
+    }
+
+    function getCurrentNumber() {
+      return getDigit(ring4)*1000 + getDigit(ring3)*100 + getDigit(ring2)*10 + getDigit(ring1);
+    }
+
+    function updateDisplay() {
+      const num = getCurrentNumber();
+      document.getElementById('currentNumber').textContent = String(num).padStart(4, '0');
+      document.getElementById('currentNumber').style.color = '#00FFFF';
+    }
+
+    function setRingTarget(ring, digit) {
+      ring.userData.targetZ = -digit * arc;
+    }
+
+    function snapRingToNearest(ring) {
+      const rotZ = ring.rotation.z;
+      const idx = Math.round(-rotZ / arc);
+      ring.rotation.z = -(((idx % N) + N) % N) * arc;
+    }
+
+    let animating = false;
+    function animateToNumber(targetNumber) {
+      if (gameWon) return;
+      activeRing = null;
+      const s = String(targetNumber).padStart(4, '0');
+      setRingTarget(ring4, +s[0]);
+      setRingTarget(ring3, +s[1]);
+      setRingTarget(ring2, +s[2]);
+      setRingTarget(ring1, +s[3]);
+      if (!animating) {
+        animating = true;
+        requestAnimationFrame(moveToTargets);
+      }
+    }
+
+    function moveToTargets() {
+      let anyMoving = false;
+      [ring1, ring2, ring3, ring4].forEach(ring => {
+        if (ring.userData.targetZ !== undefined) {
+          const current = ring.rotation.z;
+          const target = ring.userData.targetZ;
+          let diff = target - current;
+          if (diff > Math.PI) diff -= 2*Math.PI;
+          if (diff < -Math.PI) diff += 2*Math.PI;
+          if (Math.abs(diff) > 0.001) {
+            ring.rotation.z += diff * 0.1;
+            anyMoving = true;
+          } else {
+            ring.rotation.z = target;
+            delete ring.userData.targetZ;
+          }
+        }
+      });
+      updateDisplay();
+      if (anyMoving) {
+        requestAnimationFrame(moveToTargets);
+      } else {
+        animating = false;
+        [ring1, ring2, ring3, ring4].forEach(r => snapRingToNearest(r));
+        updateDisplay();
+      }
+    }
+
+    function newGame() {
+      secretNumber = Math.floor(Math.random() * 10000);
+      secretDigits = String(secretNumber).padStart(4, '0').split('').map(Number);
+      attempts = 0;
+      gameWon = false;
+      inputDigits = [];
+      clearOnlyHighlighted();
+      document.getElementById('secretDisplay').textContent = '????';
+      document.getElementById('message').textContent = '';
+      document.getElementById('attemptsDisplay').textContent = 'المحاولات: 0';
+      document.getElementById('guessBtn').disabled = false;
+      document.getElementById('resetBtn').disabled = false;
+      document.getElementById('newGameBtn').disabled = false;
+      document.getElementById('revealBtn').disabled = false;
+      animateToNumber(0);
+      triMesh.material.emissive.set(0x00FFFF);
+      pointerGroup.children[1].intensity = 2;
+      updateDisplay();
+      isRevealed = false;
+      document.getElementById('revealBtn').textContent = '👁 إظهار';
+    }
+
+    function checkGuess(guessed) {
+      if (gameWon || animating) return;
+      attempts++;
+      document.getElementById('attemptsDisplay').textContent = `المحاولات: ${attempts}`;
+
+      if (guessed === secretNumber) {
+        gameWon = true;
+        document.getElementById('secretDisplay').textContent = String(secretNumber).padStart(4, '0');
+        document.getElementById('message').textContent = '🎉 أحسنت! لقد خمنت الرقم!';
+        document.getElementById('guessBtn').disabled = true;
+        document.getElementById('resetBtn').disabled = true;
+        document.getElementById('revealBtn').disabled = true;
+        triMesh.material.emissive.set(0x00FF00);
+        pointerGroup.children[1].intensity = 4;
+        clearOnlyHighlighted();
+        secretDigits.forEach((digit, idx) => {
+          const ring = [ring4, ring3, ring2, ring1][idx];
+          const mesh = ringSegments[ring.name][digit];
+          if (mesh) {
+            mesh.material.emissive.set(new THREE.Color(0x00FF00).multiplyScalar(2.0));
+            highlightedMeshes.push({ mesh, digit });
+          }
+        });
+      } else {
+        document.getElementById('message').textContent = '';
+        const guessedDigits = String(guessed).padStart(4, '0').split('').map(Number);
+        applyHighlights(guessedDigits);
+      }
+    }
+
+    document.getElementById('revealBtn').addEventListener('click', () => {
+      if (gameWon) return;
+      const display = document.getElementById('secretDisplay');
+      const btn = document.getElementById('revealBtn');
+      if (isRevealed) {
+        display.textContent = '????';
+        btn.textContent = '👁 إظهار';
+      } else {
+        display.textContent = String(secretNumber).padStart(4, '0');
+        btn.textContent = '🙈 إخفاء';
+      }
+      isRevealed = !isRevealed;
+    });
+
+    function buildNumpad() {
+      const pad = document.getElementById('numpad');
+      pad.innerHTML = '';
+      for (let i = 0; i <= 9; i++) {
+        const btn = document.createElement('button');
+        btn.textContent = i;
+        btn.className = 'num-btn';
+        btn.addEventListener('click', () => addDigit(i));
+        pad.appendChild(btn);
+      }
+      const clearBtn = document.createElement('button');
+      clearBtn.textContent = 'C';
+      clearBtn.className = 'action-btn-sm';
+      clearBtn.id = 'clearBtn';
+      clearBtn.addEventListener('click', clearInput);
+      pad.appendChild(clearBtn);
+      const guessBtn = document.createElement('button');
+      guessBtn.textContent = '🔮 خمّن';
+      guessBtn.className = 'action-btn-sm';
+      guessBtn.id = 'guessBtn';
+      guessBtn.addEventListener('click', submitGuess);
+      pad.appendChild(guessBtn);
+    }
+
+    // ✅ الحل النهائي: امسح الكل ثم أضف الرقم الجديد
+    function addDigit(digit) {
+      if (gameWon || animating) return;
+      clearOnlyHighlighted();
+      inputDigits = [];
+      inputDigits.push(digit);
+      updateInputDisplay();
+    }
+
+    function clearInput() {
+      if (gameWon || animating) return;
+      clearOnlyHighlighted();
+      inputDigits = [];
+      updateInputDisplay();
+    }
+
+    function updateInputDisplay() {
+      const display = document.getElementById('currentNumber');
+      if (inputDigits.length > 0) {
+        display.textContent = inputDigits.join('').padStart(4, '_');
+        display.style.color = '#FFD700';
+        
+        // ✅ عند اكتمال 4 أرقام، حرك العجلات
+        if (inputDigits.length === 4) {
+          const num = parseInt(inputDigits.join(''));
+          animateToNumber(num);
+          inputDigits = [];
+        }
+      } else {
+        updateDisplay();
+      }
+    }
+
+    function submitGuess() {
+      if (gameWon || animating) return;
+      checkGuess(getCurrentNumber());
+    }
+
+    buildNumpad();
+
+    const raycaster = new THREE.Raycaster();
+    const mouse = new THREE.Vector2();
+    let activeRing = null;
+    let lastAngle = 0, currentTouchAngle = 0;
+
+    function getRingFromPoint(clientX, clientY) {
+      mouse.x = (clientX / innerWidth)*2-1; mouse.y = -(clientY / innerHeight)*2+1;
+      raycaster.setFromCamera(mouse, camera);
+      const all = [
+        {r:'ring1', d: raycaster.intersectObjects(ring1.children, true)[0]?.distance},
+        {r:'ring2', d: raycaster.intersectObjects(ring2.children, true)[0]?.distance},
+        {r:'ring3', d: raycaster.intersectObjects(ring3.children, true)[0]?.distance},
+        {r:'ring4', d: raycaster.intersectObjects(ring4.children, true)[0]?.distance}
+      ].filter(x => x.d !== undefined).sort((a,b)=>a.d-b.d);
+      return all.length ? all[0].r : null;
+    }
+
+    function getRingObj(name) { return {ring1, ring2, ring3, ring4}[name]; }
+
+    function getAngle(clientX, clientY) {
+      mouse.x = (clientX / innerWidth)*2-1; mouse.y = -(clientY / innerHeight)*2+1;
+      raycaster.setFromCamera(mouse, camera);
+      const pt = new THREE.Vector3();
+      if (raycaster.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0,0,1), 0), pt))
+        return Math.atan2(pt.y, pt.x);
+      return null;
+    }
+
+    function onDown(e) {
+      if (gameWon || animating) return;
+      if (e.pointerType==='touch' && e.target.tagName==='BUTTON') return;
+      const cx = e.clientX || (e.touches&&e.touches[0].clientX);
+      const cy = e.clientY || (e.touches&&e.touches[0].clientY);
+      const r = getRingFromPoint(cx, cy);
+      if (r) {
+        clearOnlyHighlighted();
+        activeRing = r;
+        const ang = getAngle(cx, cy);
+        if (ang!==null) { currentTouchAngle = ang; lastAngle = getRingObj(r).rotation.z; }
+        e.preventDefault();
+      }
+    }
+
+    function onMove(e) {
+      if (!activeRing || gameWon) return;
+      const cx = e.clientX || (e.touches&&e.touches[0].clientX);
+      const cy = e.clientY || (e.touches&&e.touches[0].clientY);
+      const ang = getAngle(cx, cy);
+      if (ang!==null) getRingObj(activeRing).rotation.z = lastAngle + (ang - currentTouchAngle);
+      updateDisplay();
+      inputDigits = [];
+      document.getElementById('currentNumber').style.color = '#00FFFF';
+      e.preventDefault();
+    }
+
+    function onUp(e) {
+      if (!activeRing || gameWon) return;
+      snapRingToNearest(getRingObj(activeRing));
+      activeRing = null;
+      updateDisplay();
+      e.preventDefault();
+    }
+
+    renderer.domElement.addEventListener('pointerdown', onDown);
+    renderer.domElement.addEventListener('pointermove', onMove);
+    renderer.domElement.addEventListener('pointerup', onUp);
+    renderer.domElement.addEventListener('pointerleave', onUp);
+    renderer.domElement.addEventListener('pointercancel', onUp);
+    document.addEventListener('touchstart', e => { if (e.target===renderer.domElement) e.preventDefault(); }, {passive:false});
+    document.addEventListener('touchmove', e => { if (e.target===renderer.domElement) e.preventDefault(); }, {passive:false});
+
+    document.getElementById('resetBtn').addEventListener('click', () => {
+      if (gameWon || animating) return;
+      clearOnlyHighlighted();
+      animateToNumber(0);
+      inputDigits = [];
+      document.getElementById('currentNumber').style.color = '#00FFFF';
+    });
+    document.getElementById('newGameBtn').addEventListener('click', newGame);
+
+    newGame();
+
+    (function loop() {
+      requestAnimationFrame(loop);
+      controls.update();
+      if (!animating && !gameWon) updateDisplay();
+      renderer.render(scene, camera);
+    })();
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(innerWidth, innerHeight);
+    });
+  </script>
+</body>
+</html>
